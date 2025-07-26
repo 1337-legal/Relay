@@ -1,0 +1,26 @@
+{
+  "name": "relay",
+  "module": "src/main.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "dev": "bun run src/main.ts --watch",
+    "build": "bun build src/main.ts --outdir=dist --target=node18"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.11.1",
+    "@types/mailparser": "^3.4.6",
+    "@types/openpgp": "^5.0.0",
+    "@types/smtp-server": "^3.5.10",
+    "mailparser": "^3.7.4",
+    "openpgp": "^6.1.1",
+    "smtp-server": "^3.14.0"
+  }
+}
