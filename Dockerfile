@@ -1,15 +1,13 @@
-FROM oven/bun:debian
+FROM node:20-bullseye
 
 WORKDIR /app
 
 COPY . .
 
-RUN bun install
+RUN npm install
 
-RUN apt update && apt install -y nodejs
+RUN npx prisma generate
 
-RUN bunx prisma generate
+EXPOSE 25
 
-EXPOSE 587
-
-CMD ["sh", "-c", "bunx prisma db push && bun run start"]
+CMD ["sh", "-c", "npx prisma db push && npm run start"]

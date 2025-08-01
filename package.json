@@ -4,9 +4,10 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "bun run src/main.ts",
-    "dev": "bun run src/main.ts --watch",
-    "build": "bun build src/main.ts --outdir=dist --target=node18"
+    "start": "node --loader ts-node/esm src/main.ts",
+    "dev": "node --loader ts-node/esm src/main.ts",
+    "build": "tsc --project tsconfig.json",
+    "lint": "eslint . --ext .ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -21,6 +22,7 @@
     "@types/smtp-server": "^3.5.10",
     "mailparser": "^3.7.4",
     "openpgp": "^6.1.1",
-    "smtp-server": "^3.14.0"
+    "smtp-server": "^3.14.0",
+    "ts-node": "^10.9.2"
   }
 }

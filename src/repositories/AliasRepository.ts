@@ -1,4 +1,4 @@
-import BaseRepository from './BaseRepository';
+import BaseRepository from './BaseRepository.ts';
 
 class AliasRepository extends BaseRepository {
     async findAliasByAddress(address: string) {

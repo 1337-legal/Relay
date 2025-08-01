@@ -1,11 +1,10 @@
 import * as fs from 'fs';
 import { simpleParser } from 'mailparser';
 import { SMTPServer } from 'smtp-server';
-import * as stream from 'stream';
 
-import AliasRepository from './repositories/AliasRepository';
-import EncryptionService from './services/EncryptionService';
-import MailingService from './services/MailingService';
+import AliasRepository from './repositories/AliasRepository.ts';
+import EncryptionService from './services/EncryptionService.ts';
+import MailingService from './services/MailingService.ts';
 
 function getDomainFromEmail(email: string): string | null {
     const match = email.match(/@(.+)$/);
@@ -18,6 +17,7 @@ const server = new SMTPServer({
     key: fs.readFileSync('/app/certificates/privkey.pem'),
     cert: fs.readFileSync('/app/certificates/fullchain.pem'),
     authOptional: true,
+    logger: true,
     async onConnect(session, callback) {
         console.log('SMTP connection from:', session.remoteAddress);
         console.log('Session details:', session);
@@ -29,6 +29,11 @@ const server = new SMTPServer({
     },
     async onRcptTo(address, session, callback) {
         console.log('RCPT TO:', address.address);
+        if (!address.address.endsWith('@1337.legal')) {
+            console.log('Rejecting non-1337.legal recipient:', address.address);
+            return callback(new Error('Only @1337.legal addresses are allowed'));
+        }
+
         callback();
     },
     async onData(stream, session, callback) {
@@ -81,7 +86,11 @@ const server = new SMTPServer({
             console.error('Error parsing or forwarding email:', err);
             callback(err as Error);
         }
-    },
+    }
+});
+
+server.on('error', (err) => {
+    console.error('SMTP server error:', err);
 });
 
 server.listen(25, () => {

@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 
-import BaseRepository from './BaseRepository';
+import BaseRepository from './BaseRepository.ts';
 
 class UserRepository extends BaseRepository {
     async findUserById(id: number) {

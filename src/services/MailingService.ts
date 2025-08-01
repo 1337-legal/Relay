@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 
-import BaseService from './BaseService';
+import BaseService from './BaseService.ts';
 
 class MailingService extends BaseService {
     public domain: string;
