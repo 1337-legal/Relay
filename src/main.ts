@@ -59,13 +59,17 @@ const server = new SMTPServer({
             }
 
             const user = alias.user;
-            const emailContent = `Subject: ${parsed.subject}\nFrom: ${parsed.from?.text}\nTo: ${parsed.to?.text}\n\n${parsed.text}`;
+            const toText =
+                Array.isArray(parsed.to)
+                    ? parsed.to.map(addr => addr.text).join(', ')
+                    : parsed.to?.text || '';
+            const emailContent = `Subject: ${parsed.subject}\nFrom: ${parsed.from?.text}\nTo: ${toText}\n\n${parsed.text}`;
             const encrypted = await EncryptionService.encryptEmailContent(emailContent, user.pgpPublicKey);
             const originalFrom = parsed.from?.value?.[0]?.address || 'unknown';
             const recipientDomain = getDomainFromEmail(recipient) || 'unknown.com';
 
             await MailingService.sendMail({
-                from: `${parsed.from?.text} <${originalFrom.replace('@', '_at_')}@${recipientDomain}>`,
+                from: `${parsed.from?.text} <${originalFrom.replace('@', '_at_')}_${alias.address.split('@')[0]}@${recipientDomain}>`,
                 to: user.forwardAddress,
                 subject: parsed.subject || 'No Subject',
                 text: encrypted
