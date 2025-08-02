@@ -21,6 +21,7 @@ const server = new SMTPServer({
     async onConnect(session, callback) {
         console.log('SMTP connection from:', session.remoteAddress);
         console.log('Session details:', session);
+
         callback();
     },
     async onMailFrom(address, session, callback) {
@@ -39,10 +40,7 @@ const server = new SMTPServer({
     async onData(stream, session, callback) {
         console.log('onData called');
         try {
-            const parsed: any = await simpleParser(stream);
-            console.log('Session ID:', session);
-            console.log('Email parsed:', parsed);
-            console.log('parsed.to:', parsed.to);
+            const parsed = await simpleParser(stream);
             const recipient = session.envelope.rcptTo?.[0]?.address;
             if (!recipient) {
                 console.log('No recipient found in email');
@@ -61,22 +59,15 @@ const server = new SMTPServer({
             }
 
             const user = alias.user;
-
             const emailContent = `Subject: ${parsed.subject}\nFrom: ${parsed.from?.text}\nTo: ${parsed.to?.text}\n\n${parsed.text}`;
             const encrypted = await EncryptionService.encryptEmailContent(emailContent, user.pgpPublicKey);
-
-            const smtpHost = getDomainFromEmail(user.forwardAddress) || 'localhost';
-
             const originalFrom = parsed.from?.value?.[0]?.address || 'unknown';
             const recipientDomain = getDomainFromEmail(recipient) || 'unknown.com';
-            const formattedFrom = `${originalFrom.replace('@', '_at_')}_${recipientDomain}`;
 
             await MailingService.sendMail({
-                host: smtpHost,
-                port: 587,
-                from: formattedFrom,
+                from: `${parsed.from?.text} <${originalFrom.replace('@', '_at_')}@${recipientDomain}>`,
                 to: user.forwardAddress,
-                subject: `[FORWARDED] ${parsed.subject}`,
+                subject: parsed.subject || 'No Subject',
                 text: encrypted
             });
 
