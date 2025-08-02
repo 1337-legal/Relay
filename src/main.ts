@@ -17,11 +17,8 @@ const server = new SMTPServer({
     key: fs.readFileSync('/app/certificates/privkey.pem'),
     cert: fs.readFileSync('/app/certificates/fullchain.pem'),
     authOptional: true,
-    logger: true,
     async onConnect(session, callback) {
         console.log('SMTP connection from:', session.remoteAddress);
-        console.log('Session details:', session);
-
         callback();
     },
     async onMailFrom(address, session, callback) {
@@ -48,8 +45,6 @@ const server = new SMTPServer({
                 return;
             }
 
-            console.log('Recipient address:', recipient);
-
             const alias = await AliasRepository.findAliasByAddress(recipient);
             console.log('Alias lookup result:', alias);
             if (!alias || !alias.user) {
@@ -59,23 +54,26 @@ const server = new SMTPServer({
             }
 
             const user = alias.user;
-            const toText =
-                Array.isArray(parsed.to)
-                    ? parsed.to.map(addr => addr.text).join(', ')
-                    : parsed.to?.text || '';
-            const emailContent = `Subject: ${parsed.subject}\nFrom: ${parsed.from?.text}\nTo: ${toText}\n\n${parsed.text}`;
-            const encrypted = await EncryptionService.encryptEmailContent(emailContent, user.pgpPublicKey);
+
+            const textContent = parsed.text || '';
+            const htmlContent = parsed.html || '';
+
+            const encryptedText = textContent ? await EncryptionService.encryptEmailContent(textContent, user.pgpPublicKey) : '';
+            const encryptedHtml = htmlContent ? await EncryptionService.encryptEmailContent(htmlContent, user.pgpPublicKey) : undefined;
+
             const originalFrom = parsed.from?.value?.[0]?.address || 'unknown';
             const recipientDomain = getDomainFromEmail(recipient) || 'unknown.com';
+            const from = `${parsed.from?.text.split(' <')[0]} <${originalFrom.replace('@', '_at_')}_${alias.address.split('@')[0]}@${recipientDomain}>`
 
             await MailingService.sendMail({
-                from: `${parsed.from?.text} <${originalFrom.replace('@', '_at_')}_${alias.address.split('@')[0]}@${recipientDomain}>`,
+                from: from,
                 to: user.forwardAddress,
                 subject: parsed.subject || 'No Subject',
-                text: encrypted
+                text: encryptedText || encryptedHtml || 'No content',
+                html: encryptedHtml
             });
 
-            console.log('Forwarded encrypted email:', parsed.subject);
+            console.log(`${new Date().toISOString()}: ${originalFrom} -> relay ${from} -> ${user.forwardAddress} with subject: ${parsed.subject || 'No Subject'}`);
             callback();
         } catch (err) {
             console.error('Error parsing or forwarding email:', err);

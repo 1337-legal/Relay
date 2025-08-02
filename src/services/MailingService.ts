@@ -14,7 +14,7 @@ class MailingService extends BaseService {
 
         this.domain = process.env.DKIM_DOMAIN || 'yourdomain.com';
         this.selector = process.env.DKIM_SELECTOR || 'default';
-        this.privateKey = process.env.DKIM_PRIVATE_KEY || '';
+        this.privateKey = (process.env.DKIM_PRIVATE_KEY || '').replace(/\\n/g, '\n');
     }
 
     async solveMailExchange(email: string): Promise<[string, number]> {
@@ -39,11 +39,12 @@ class MailingService extends BaseService {
         }
     }
 
-    async sendMail({ from, to, subject, text }: {
+    async sendMail({ from, to, subject, text, html }: {
         from: string,
         to: string,
         subject: string,
         text: string,
+        html?: string,
     }) {
         const [host, port] = await this.solveMailExchange(to);
 
@@ -52,7 +53,11 @@ class MailingService extends BaseService {
                 host,
                 port,
                 secure: false,
-                tls: { rejectUnauthorized: false },
+                requireTLS: true,
+                tls: {
+                    rejectUnauthorized: false,
+                    ciphers: 'SSLv3'
+                },
                 dkim: {
                     domainName: this.domain,
                     keySelector: this.selector,
@@ -60,18 +65,27 @@ class MailingService extends BaseService {
                 }
             });
 
+            const headers: Record<string, string> = {}
+            if (html) {
+                headers['Content-Type'] = 'text/html; charset=utf-8';
+            } else {
+                headers['Content-Type'] = 'text/plain; charset=utf-8';
+            }
+
             const info = await transporter.sendMail({
                 from,
                 to,
                 subject,
                 text,
+                html,
+                headers
             });
 
             console.log('Mail sent:', info);
             return info;
         } catch (error) {
             console.error('Error sending mail:', {
-                host, port, from, to, subject, text,
+                host, port, from, to, subject, text, html: html ? '[HTML_CONTENT]' : undefined,
                 dkim: {
                     domainName: this.domain,
                     keySelector: this.selector,
