@@ -3,17 +3,11 @@ import { simpleParser } from 'mailparser';
 import { SMTPServer } from 'smtp-server';
 
 import AliasRepository from './repositories/AliasRepository.ts';
-import EncryptionService from './services/EncryptionService.ts';
 import MailingService from './services/MailingService.ts';
-
-function getDomainFromEmail(email: string): string | null {
-    const match = email.match(/@(.+)$/);
-    return match && typeof match[1] === 'string' ? match[1] : null;
-}
 
 const server = new SMTPServer({
     name: 'mail.1337.legal',
-    secure: false, // Use STARTTLS (opportunistic TLS)
+    secure: false,
     key: fs.readFileSync('/app/certificates/privkey.pem'),
     cert: fs.readFileSync('/app/certificates/fullchain.pem'),
     authOptional: true,
@@ -28,52 +22,61 @@ const server = new SMTPServer({
     async onRcptTo(address, session, callback) {
         console.log('RCPT TO:', address.address);
         if (!address.address.endsWith('@1337.legal')) {
-            console.log('Rejecting non-1337.legal recipient:', address.address);
             return callback(new Error('Only @1337.legal addresses are allowed'));
         }
 
         callback();
     },
     async onData(stream, session, callback) {
-        console.log('onData called');
         try {
-            const parsed = await simpleParser(stream);
+            const dateStart = Date.now();
+
+            const mail = await simpleParser(stream);
+
             const recipient = session.envelope.rcptTo?.[0]?.address;
             if (!recipient) {
                 console.log('No recipient found in email');
-                callback(new Error('No recipient found in email'));
-                return;
+                return callback(new Error('No recipient found in email'));
             }
 
             const alias = await AliasRepository.findAliasByAddress(recipient);
             console.log('Alias lookup result:', alias);
             if (!alias || !alias.user) {
                 console.log('No user found for recipient alias:', recipient);
-                callback(new Error('No user found for recipient alias'));
-                return;
+                return callback(new Error('No user found for recipient alias'));
             }
 
             const user = alias.user;
+            if (!mail.from || !mail.from.text) {
+                console.log('No valid sender address found in email');
+                return callback(new Error('No valid sender address found in email'));
+            }
 
-            const textContent = parsed.text || '';
-            const htmlContent = parsed.html || '';
+            const serializedAddress = await MailingService.serializeAddress(mail.from.text, alias.address);
+            if (!serializedAddress) {
+                console.log('Failed to serialize address for forwarding');
+                return callback(new Error('Failed to serialize address for forwarding'));
+            }
 
-            const encryptedText = textContent ? await EncryptionService.encryptEmailContent(textContent, user.pgpPublicKey) : '';
-            const encryptedHtml = htmlContent ? await EncryptionService.encryptEmailContent(htmlContent, user.pgpPublicKey) : undefined;
-
-            const originalFrom = parsed.from?.value?.[0]?.address || 'unknown';
-            const recipientDomain = getDomainFromEmail(recipient) || 'unknown.com';
-            const from = `${parsed.from?.text.split(' <')[0]} <${originalFrom.replace('@', '_at_')}_${alias.address.split('@')[0]}@${recipientDomain}>`
-
-            await MailingService.sendMail({
-                from: from,
+            const response = await MailingService.sendMail({
+                from: serializedAddress,
                 to: user.forwardAddress,
-                subject: parsed.subject || 'No Subject',
-                text: encryptedText || encryptedHtml || 'No content',
-                html: encryptedHtml
+                subject: mail.subject || 'No Subject',
+                content: {
+                    text: mail.text,
+                    html: mail.html
+                },
+                publicKey: user.pgpPublicKey
             });
 
-            console.log(`${new Date().toISOString()}: ${originalFrom} -> relay ${from} -> ${user.forwardAddress} with subject: ${parsed.subject || 'No Subject'}`);
+            if (response.accepted.length === 0) {
+                console.error('Failed to send email to user forward address:', user.forwardAddress);
+                return callback(new Error('Failed to send email to user forward address'));
+            }
+
+            console.log(`✅ Email processed and forwarded successfully in ${Date.now() - dateStart}ms`);
+            console.log(`${new Date().toISOString()}: ${mail.from.text} -> relay ${serializedAddress} -> ${user.forwardAddress}.`);
+
             callback();
         } catch (err) {
             console.error('Error parsing or forwarding email:', err);

@@ -21,6 +21,7 @@
     "@types/openpgp": "^5.0.0",
     "@types/smtp-server": "^3.5.10",
     "mailparser": "^3.7.4",
+    "nodemailer-openpgp": "^2.2.1",
     "openpgp": "^6.1.1",
     "smtp-server": "^3.14.0",
     "ts-node": "^10.9.2"
