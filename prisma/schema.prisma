@@ -14,21 +14,27 @@ datasource db {
 }
 
 model User {
-  id            Int    @id @default(autoincrement())
-  alias         String @unique
-  forwardAddress String
-  pgpPublicKey  String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  aliases       Alias[]
+  id           Int       @id @default(autoincrement())
+  publicKey    String    @unique
+  role         UserRoles @default(guest)
+  address      String
+  pgpPublicKey String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @default(now())
+  aliases      Alias[]
 }
 
 model Alias {
-  id      Int    @id @default(autoincrement())
-  address String @unique
-  userId  Int
+  id        Int      @id @default(autoincrement())
+  address   String   @unique
+  userId    Int
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  
-  user    User   @relation(fields: [userId], references: [id])
+  updatedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+enum UserRoles {
+  guest
+  user
 }

@@ -60,7 +60,7 @@ const server = new SMTPServer({
 
             const response = await MailingService.sendMail({
                 from: serializedAddress,
-                to: user.forwardAddress,
+                to: user.address,
                 subject: mail.subject || 'No Subject',
                 content: {
                     text: mail.text,
@@ -70,12 +70,12 @@ const server = new SMTPServer({
             });
 
             if (response.accepted.length === 0) {
-                console.error('Failed to send email to user forward address:', user.forwardAddress);
+                console.error('Failed to send email to user forward address:', user.address);
                 return callback(new Error('Failed to send email to user forward address'));
             }
 
             console.log(`✅ Email processed and forwarded successfully in ${Date.now() - dateStart}ms`);
-            console.log(`${new Date().toISOString()}: ${mail.from.text} -> relay ${serializedAddress} -> ${user.forwardAddress}.`);
+            console.log(`${new Date().toISOString()}: ${mail.from.text} -> relay ${serializedAddress} -> ${user.address}.`);
 
             callback();
         } catch (err) {

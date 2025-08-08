@@ -152,7 +152,7 @@ class MailingService extends BaseService {
             text: string | undefined,
             html: string | false
         },
-        publicKey?: string
+        publicKey?: string | null
     }) {
         const [host, port] = await this.resolveMailExchange(to);
 
