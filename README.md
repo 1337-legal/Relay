@@ -18,6 +18,6 @@
 ### 1. Clone the Repo
 
 ```sh
-git clone https://github.com/your-org/1337.legal.git
-cd 1337.legal/Relay
+git clone https://github.com/1337.legal/Relay.git
+cd Relay
 ```
