@@ -58,6 +58,8 @@ const server = new SMTPServer({
                 return callback(new Error('Failed to serialize address for forwarding'));
             }
 
+            console.log("ATTACHMENT", mail.attachments)
+
             const response = await MailingService.sendMail({
                 from: serializedAddress,
                 to: user.address,
@@ -66,7 +68,14 @@ const server = new SMTPServer({
                     text: mail.text,
                     html: mail.html
                 },
-                publicKey: user.pgpPublicKey
+                publicKey: user.pgpPublicKey,
+                attachments: (mail.attachments || []).map(att => ({
+                    filename: att.filename,
+                    contentType: att.contentType,
+                    contentDisposition: att.contentDisposition,
+                    content: att.content as Buffer,
+                    cid: att.cid
+                }))
             });
 
             if (response.accepted.length === 0) {

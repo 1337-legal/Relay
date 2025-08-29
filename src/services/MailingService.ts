@@ -141,10 +141,11 @@ class MailingService extends BaseService {
      * @param params.subject - The subject of the email.
      * @param params.content - The email content, including text and/or HTML.
      * @param params.publicKey - Optional public key for encrypting the content.
+     * @param params.attachments - Optional attachments to include in the email.
      * @returns A Promise resolving to the result of the email sending operation.
      * @throws If sending fails or required parameters are missing.
      */
-    async sendMail({ from, to, subject, content, publicKey }: {
+    async sendMail({ from, to, subject, content, publicKey, attachments }: {
         from: string,
         to: string,
         subject: string,
@@ -152,7 +153,14 @@ class MailingService extends BaseService {
             text: string | undefined,
             html: string | false
         },
-        publicKey?: string | null
+        publicKey?: string | null,
+        attachments?: Array<{
+            filename?: string,
+            contentType?: string,
+            contentDisposition?: string,
+            content: Buffer,
+            cid?: string
+        }>
     }) {
         const [host, port] = await this.resolveMailExchange(to);
 
@@ -180,7 +188,7 @@ class MailingService extends BaseService {
             };
 
             if (publicKey) {
-                const multipartContent = this.createMultipartContent(content);
+                const multipartContent = this.createMultipartContent(content, attachments);
                 const encryptedContent = await this.encryptContent(multipartContent, publicKey);
 
                 const pgpBoundary = `----=_NextPart_${Date.now()}_${Math.random().toString(36)}`;
@@ -198,6 +206,15 @@ class MailingService extends BaseService {
                 }
                 if (content.html && typeof content.html === 'string') {
                     mailOptions.html = content.html;
+                }
+                if (attachments && attachments.length) {
+                    mailOptions.attachments = attachments.map(a => ({
+                        filename: a.filename,
+                        content: a.content,
+                        contentType: a.contentType,
+                        contentDisposition: a.contentDisposition,
+                        cid: a.cid
+                    }));
                 }
             }
 
@@ -261,29 +278,89 @@ class MailingService extends BaseService {
     /**
      * Creates a multipart MIME content structure that preserves HTML after PGP decryption
      */
-    private createMultipartContent(content: { text: string | undefined, html: string | false }): string {
-        const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36)}`;
+    private createMultipartContent(content: { text: string | undefined, html: string | false }, attachments?: Array<{
+        filename?: string,
+        contentType?: string,
+        contentDisposition?: string,
+        content: Buffer,
+        cid?: string
+    }>): string {
+        if (!attachments || attachments.length === 0) {
+            const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36)}`;
 
-        let mimeContent = `MIME-Version: 1.0\r\n`;
-        mimeContent += `Content-Type: multipart/alternative; boundary="${boundary}"\r\n\r\n`;
+            let mimeContent = `MIME-Version: 1.0\r\n`;
+            mimeContent += `Content-Type: multipart/alternative; boundary="${boundary}"\r\n\r\n`;
+
+            if (content.text) {
+                mimeContent += `--${boundary}\r\n`;
+                mimeContent += `Content-Type: text/plain; charset=utf-8\r\n`;
+                mimeContent += `Content-Transfer-Encoding: 8bit\r\n\r\n`;
+                mimeContent += `${content.text}\r\n\r\n`;
+            }
+
+            if (content.html && typeof content.html === 'string') {
+                mimeContent += `--${boundary}\r\n`;
+                mimeContent += `Content-Type: text/html; charset=utf-8\r\n`;
+                mimeContent += `Content-Transfer-Encoding: 8bit\r\n\r\n`;
+                mimeContent += `${content.html}\r\n\r\n`;
+            }
+
+            mimeContent += `--${boundary}--\r\n`;
+
+            return mimeContent;
+        }
+
+        const mixedBoundary = `----=_Mixed_${Date.now()}_${Math.random().toString(36)}`;
+        const altBoundary = `----=_Alt_${Date.now()}_${Math.random().toString(36)}`;
+
+        let mime = `MIME-Version: 1.0\r\n`;
+        mime += `Content-Type: multipart/mixed; boundary="${mixedBoundary}"\r\n\r\n`;
+
+        mime += `--${mixedBoundary}\r\n`;
+        mime += `Content-Type: multipart/alternative; boundary="${altBoundary}"\r\n\r\n`;
 
         if (content.text) {
-            mimeContent += `--${boundary}\r\n`;
-            mimeContent += `Content-Type: text/plain; charset=utf-8\r\n`;
-            mimeContent += `Content-Transfer-Encoding: 8bit\r\n\r\n`;
-            mimeContent += `${content.text}\r\n\r\n`;
+            mime += `--${altBoundary}\r\n`;
+            mime += `Content-Type: text/plain; charset=utf-8\r\n`;
+            mime += `Content-Transfer-Encoding: 8bit\r\n\r\n`;
+            mime += `${content.text}\r\n\r\n`;
         }
 
         if (content.html && typeof content.html === 'string') {
-            mimeContent += `--${boundary}\r\n`;
-            mimeContent += `Content-Type: text/html; charset=utf-8\r\n`;
-            mimeContent += `Content-Transfer-Encoding: 8bit\r\n\r\n`;
-            mimeContent += `${content.html}\r\n\r\n`;
+            mime += `--${altBoundary}\r\n`;
+            mime += `Content-Type: text/html; charset=utf-8\r\n`;
+            mime += `Content-Transfer-Encoding: 8bit\r\n\r\n`;
+            mime += `${content.html}\r\n\r\n`;
         }
 
-        mimeContent += `--${boundary}--\r\n`;
+        mime += `--${altBoundary}--\r\n\r\n`;
 
-        return mimeContent;
+        for (const att of attachments) {
+            const filename = att.filename || 'attachment';
+            const contentType = att.contentType || 'application/octet-stream';
+            const disposition = (att.contentDisposition && att.contentDisposition.toLowerCase() === 'inline') ? 'inline' : 'attachment';
+            const base64 = this.chunkBase64(att.content.toString('base64'));
+
+            mime += `--${mixedBoundary}\r\n`;
+            mime += `Content-Type: ${contentType}; name="${this.encodeHeaderParam(filename)}"\r\n`;
+            mime += `Content-Transfer-Encoding: base64\r\n`;
+            mime += `Content-Disposition: ${disposition}; filename="${this.encodeHeaderParam(filename)}"\r\n`;
+            if (att.cid) {
+                mime += `Content-ID: <${att.cid}>\r\n`;
+            }
+            mime += `\r\n${base64}\r\n\r\n`;
+        }
+
+        mime += `--${mixedBoundary}--\r\n`;
+        return mime;
+    }
+
+    private chunkBase64(b64: string): string {
+        return b64.replace(/.{1,76}/g, '$&\r\n').trim();
+    }
+
+    private encodeHeaderParam(value: string): string {
+        return value.replace(/(["\\])/g, '\\$1');
     }
 }
 
