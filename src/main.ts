@@ -1,9 +1,9 @@
 import * as fs from 'fs';
-import { simpleParser } from 'mailparser';
-import { SMTPServer } from 'smtp-server';
+import {simpleParser} from 'mailparser';
+import {SMTPServer} from 'smtp-server';
 
-import AliasRepository from './repositories/AliasRepository.ts';
-import MailingService from './services/MailingService.ts';
+import AliasRepository from '@Repositories/AliasRepository.ts';
+import MailingService from '@Services/MailingService.ts';
 
 const server = new SMTPServer({
     name: 'mail.1337.legal',
@@ -39,26 +39,26 @@ const server = new SMTPServer({
                 return callback(new Error('No recipient found in email'));
             }
 
-            const alias = await AliasRepository.findAliasByAddress(recipient);
-            console.log('Alias lookup result:', alias);
-            if (!alias || !alias.user) {
+            const alias = await AliasRepository.getAliasByAddress(recipient);
+            if (!alias) {
                 console.log('No user found for recipient alias:', recipient);
                 return callback(new Error('No user found for recipient alias'));
             }
 
-            const user = alias.user;
+            const user = {
+                address: alias.userAddress,
+                pgpPublicKey: alias.pgpPublicKey
+            };
             if (!mail.from || !mail.from.text) {
                 console.log('No valid sender address found in email');
                 return callback(new Error('No valid sender address found in email'));
             }
 
-            const serializedAddress = await MailingService.serializeAddress(mail.from.text, alias.address);
+            const serializedAddress = await MailingService.serializeAddress(mail.from.text, alias.aliasAddress);
             if (!serializedAddress) {
                 console.log('Failed to serialize address for forwarding');
                 return callback(new Error('Failed to serialize address for forwarding'));
             }
-
-            console.log("ATTACHMENT", mail.attachments)
 
             const response = await MailingService.sendMail({
                 from: serializedAddress,
@@ -83,8 +83,7 @@ const server = new SMTPServer({
                 return callback(new Error('Failed to send email to user forward address'));
             }
 
-            console.log(`✅ Email processed and forwarded successfully in ${Date.now() - dateStart}ms`);
-            console.log(`${new Date().toISOString()}: ${mail.from.text} -> relay ${serializedAddress} -> ${user.address}.`);
+            console.log(`✅ [${Date.now() - dateStart}ms}] ${mail.from.text} -> relay ${serializedAddress} -> [REDACTED].`);
 
             callback();
         } catch (err) {

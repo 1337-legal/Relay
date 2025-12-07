@@ -29,7 +29,15 @@
         // Mapping
         "baseUrl": ".",
         "paths": {
-            "@relay/*": ["./src/*"]
+          "@Drivers/*": [
+            "src/drivers/*"
+          ],
+          "@Repositories/*": [
+            "src/repositories/*"
+          ],
+          "@Services/*": [
+            "src/services/*"
+          ]
         }
     }
 }
