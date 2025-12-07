@@ -1,13 +1,14 @@
-FROM node:20-bullseye
+FROM node:lts-alpine
 
 WORKDIR /app
 
-COPY . .
+COPY package.json ./
+COPY package-lock.json ./
+COPY tsconfig.json ./
+COPY src/ ./src/
 
 RUN npm install
 
-RUN npx prisma generate
-
 EXPOSE 25
 
-CMD ["sh", "-c", "npx prisma db push && npm run start"]
+CMD ["npm", "run", "start"]
