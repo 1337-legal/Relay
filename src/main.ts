@@ -2,7 +2,7 @@ import {simpleParser} from 'mailparser';
 import {SMTPServer} from 'smtp-server';
 
 import Log from './lib/Logs.ts';
-import AliasRepository from '@Repositories/AliasRepository.ts';
+import AliasRepository from './repositories/AliasRepository.ts';
 import MailingService from '@Services/MailingService.ts';
 
 function rejectWithError(callback: (err?: Error) => void, message: string): void {
