@@ -27,20 +27,6 @@
         "noPropertyAccessFromIndexSignature": false,
 
         // Mapping
-        "baseUrl": ".",
-        "paths": {
-          "@Lib/*": [
-            "src/Lib/*"
-          ],
-          "@Drivers/*": [
-            "src/drivers/*"
-          ],
-          "@Repositories/*": [
-            "src/repositories/*"
-          ],
-          "@Services/*": [
-            "src/services/*"
-          ]
-        }
+      "baseUrl": "."
     }
 }

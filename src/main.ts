@@ -3,7 +3,7 @@ import {SMTPServer} from 'smtp-server';
 
 import Log from './lib/Logs.ts';
 import AliasRepository from './repositories/AliasRepository.ts';
-import MailingService from '@Services/MailingService.ts';
+import MailingService from './services/MailingService.ts';
 
 function rejectWithError(callback: (err?: Error) => void, message: string): void {
     Log.Warning(message);
