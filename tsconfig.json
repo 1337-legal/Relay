@@ -29,6 +29,9 @@
         // Mapping
         "baseUrl": ".",
         "paths": {
+          "@Lib/*": [
+            "src/Lib/*"
+          ],
           "@Drivers/*": [
             "src/drivers/*"
           ],

@@ -2,8 +2,14 @@ import * as fs from 'fs';
 import {simpleParser} from 'mailparser';
 import {SMTPServer} from 'smtp-server';
 
+import Log from './lib/Logs.ts';
 import AliasRepository from '@Repositories/AliasRepository.ts';
 import MailingService from '@Services/MailingService.ts';
+
+function rejectWithError(callback: (err?: Error) => void, message: string): void {
+    Log.Warning(message);
+    callback(new Error(message));
+}
 
 const server = new SMTPServer({
     name: 'mail.1337.legal',
@@ -11,53 +17,43 @@ const server = new SMTPServer({
     key: fs.readFileSync('/app/certificates/privkey.pem'),
     cert: fs.readFileSync('/app/certificates/fullchain.pem'),
     authOptional: true,
-    async onConnect(session, callback) {
-        console.log('SMTP connection from:', session.remoteAddress);
+
+    onConnect(session, callback) {
+        Log.Info(`SMTP connection from ${session.remoteAddress} (${session.clientHostname})`);
         callback();
     },
-    async onMailFrom(address, session, callback) {
-        console.log('MAIL FROM:', address.address);
-        callback();
-    },
-    async onRcptTo(address, session, callback) {
-        console.log('RCPT TO:', address.address);
+
+    onRcptTo(address, session, callback) {
         if (!address.address.endsWith('@1337.legal')) {
-            return callback(new Error('Only @1337.legal addresses are allowed'));
+            return rejectWithError(callback, 'Only @1337.legal addresses are allowed');
         }
-
         callback();
     },
+
     async onData(stream, session, callback) {
+        const dateStart = Date.now();
+
         try {
-            const dateStart = Date.now();
-
             const mail = await simpleParser(stream);
-
             const recipient = session.envelope.rcptTo?.[0]?.address;
+            const senderAddress = mail.from?.text;
+
             if (!recipient) {
-                console.log('No recipient found in email');
-                return callback(new Error('No recipient found in email'));
+                return rejectWithError(callback, 'No recipient found in email');
             }
 
-            const alias = await AliasRepository.getAliasByAddress(recipient);
-            if (!alias) {
-                console.log('No user found for recipient alias:', recipient);
-                return callback(new Error('No user found for recipient alias'));
+            if (!senderAddress) {
+                return rejectWithError(callback, 'No valid sender address found in email');
             }
 
-            const user = {
-                address: alias.userAddress,
-                pgpPublicKey: alias.pgpPublicKey
-            };
-            if (!mail.from || !mail.from.text) {
-                console.log('No valid sender address found in email');
-                return callback(new Error('No valid sender address found in email'));
+            const user = await AliasRepository.getUserByAlias(recipient);
+            if (!user) {
+                return rejectWithError(callback, `No user found for recipient alias: ${recipient}`);
             }
 
-            const serializedAddress = await MailingService.serializeAddress(mail.from.text, alias.aliasAddress);
+            const serializedAddress = await MailingService.serializeAddress(senderAddress, recipient);
             if (!serializedAddress) {
-                console.log('Failed to serialize address for forwarding');
-                return callback(new Error('Failed to serialize address for forwarding'));
+                return rejectWithError(callback, 'Failed to serialize address for forwarding');
             }
 
             const response = await MailingService.sendMail({
@@ -79,24 +75,22 @@ const server = new SMTPServer({
             });
 
             if (response.accepted.length === 0) {
-                console.error('Failed to send email to user forward address:', user.address);
-                return callback(new Error('Failed to send email to user forward address'));
+                return rejectWithError(callback, `Failed to send email to user forward address: ${user.address}`);
             }
 
-            console.log(`✅ [${Date.now() - dateStart}ms}] ${mail.from.text} -> relay ${serializedAddress} -> [REDACTED].`);
-
+            Log.Success(`[${Date.now() - dateStart}ms] ${senderAddress} -> relay ${serializedAddress} -> [REDACTED]`);
             callback();
         } catch (err) {
-            console.error('Error parsing or forwarding email:', err);
+            Log.Error(`Error parsing or forwarding email: ${err}`);
             callback(err as Error);
         }
     }
 });
 
 server.on('error', (err) => {
-    console.error('SMTP server error:', err);
+    Log.Error(`SMTP server error: ${err}`);
 });
 
 server.listen(25, () => {
-    console.log('SMTP server with STARTTLS listening on port 25');
+    Log.Success('SMTP server with STARTTLS listening on port 25');
 });
