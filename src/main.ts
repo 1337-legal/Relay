@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import {simpleParser} from 'mailparser';
 import {SMTPServer} from 'smtp-server';
 
@@ -14,8 +13,8 @@ function rejectWithError(callback: (err?: Error) => void, message: string): void
 const server = new SMTPServer({
     name: 'mail.1337.legal',
     secure: false,
-    key: fs.readFileSync('/app/certificates/privkey.pem'),
-    cert: fs.readFileSync('/app/certificates/fullchain.pem'),
+    cert: process.env.RELAY_CERTIFICATES,
+    key: process.env.RELAY_PRIVATE_KEY,
     authOptional: true,
 
     onConnect(session, callback) {
