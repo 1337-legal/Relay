@@ -11,6 +11,7 @@ export interface Alias {
     id: Generated<number>;
     userId: number;
     address: string;
+    status: "active" | "disabled";
     updatedAt: Generated<Timestamp>;
     createdAt: Generated<Timestamp>;
 }
