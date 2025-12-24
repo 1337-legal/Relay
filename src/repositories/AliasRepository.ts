@@ -9,6 +9,14 @@ class AliasRepository extends BaseRepository {
             .selectAll('User')
             .executeTakeFirst();
     }
+
+    async getAliasByAddress(address: string) {
+        return this.database
+            .selectFrom('Alias')
+            .where('Alias.address', '=', address)
+            .selectAll()
+            .executeTakeFirst();
+    }
 }
 
 export default new AliasRepository();

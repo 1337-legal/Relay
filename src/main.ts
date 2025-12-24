@@ -5,10 +5,7 @@ import Log from './lib/Logs.ts';
 import AliasRepository from './repositories/AliasRepository.ts';
 import MailingService from './services/MailingService.ts';
 
-function rejectWithError(callback: (err?: Error) => void, message: string): void {
-    Log.Warning(message);
-    callback(new Error(message));
-}
+const reject = (callback: (err?: Error) => void, message: string) => (Log.Warning(message), callback(new Error(message)));
 
 const server = new SMTPServer({
     name: 'mail.1337.legal',
@@ -16,68 +13,49 @@ const server = new SMTPServer({
     cert: process.env.RELAY_CERTIFICATES,
     key: process.env.RELAY_PRIVATE_KEY,
     authOptional: true,
-
-    onConnect(session, callback) {
-        Log.Info(`SMTP connection from ${session.remoteAddress} (${session.clientHostname})`);
-        callback();
-    },
-
-    onRcptTo(address, session, callback) {
-        if (!address.address.endsWith('@1337.legal')) {
-            return rejectWithError(callback, 'Only @1337.legal addresses are allowed');
+    onRcptTo: (address, _, callback) => {
+        if (address.address.endsWith('@1337.legal')) {
+            callback();
+        } else {
+            reject(callback, 'Only @1337.legal addresses are allowed');
         }
-        callback();
     },
-
     async onData(stream, session, callback) {
-        const dateStart = Date.now();
+        const start = Date.now();
 
         try {
             const mail = await simpleParser(stream);
             const recipient = session.envelope.rcptTo?.[0]?.address;
-            const senderAddress = mail.from?.text;
+            const sender = mail.from?.text;
 
-            if (!recipient) {
-                return rejectWithError(callback, 'No recipient found in email');
-            }
+            if (!recipient) return reject(callback, 'No recipient found in email');
+            if (!sender) return reject(callback, 'No valid sender address found in email');
 
-            if (!senderAddress) {
-                return rejectWithError(callback, 'No valid sender address found in email');
-            }
+            const [user, alias] = await Promise.all([
+                AliasRepository.getUserByAlias(recipient),
+                AliasRepository.getAliasByAddress(recipient)
+            ]);
 
-            const user = await AliasRepository.getUserByAlias(recipient);
-            if (!user) {
-                return rejectWithError(callback, `No user found for recipient alias: ${recipient}`);
-            }
+            if (!user) return reject(callback, `No user found for recipient alias: ${recipient}`);
+            if (!alias || alias.status !== 'active') return reject(callback, `No alias found for recipient address: ${recipient}`);
 
-            const serializedAddress = await MailingService.serializeAddress(senderAddress, recipient);
-            if (!serializedAddress) {
-                return rejectWithError(callback, 'Failed to serialize address for forwarding');
-            }
+            const serializedAddress = await MailingService.serializeAddress(sender, recipient);
+            if (!serializedAddress) return reject(callback, 'Failed to serialize address for forwarding');
 
             const response = await MailingService.sendMail({
                 from: serializedAddress,
                 to: user.address,
                 subject: mail.subject || 'No Subject',
-                content: {
-                    text: mail.text,
-                    html: mail.html
-                },
+                content: { text: mail.text, html: mail.html },
                 publicKey: user.pgpPublicKey,
-                attachments: (mail.attachments || []).map(att => ({
-                    filename: att.filename,
-                    contentType: att.contentType,
-                    contentDisposition: att.contentDisposition,
-                    content: att.content as Buffer,
-                    cid: att.cid
-                }))
+                attachments: mail.attachments?.map(({filename, contentType, contentDisposition, content, cid}) => ({
+                    filename, contentType, contentDisposition, content: content as Buffer, cid
+                })) || []
             });
 
-            if (response.accepted.length === 0) {
-                return rejectWithError(callback, `Failed to send email to user forward address: ${user.address}`);
-            }
+            if (!response.accepted.length) return reject(callback, `Failed to send email to user forward address: ${user.address}`);
 
-            Log.Success(`[${Date.now() - dateStart}ms] ${senderAddress} -> relay ${serializedAddress} -> [REDACTED]`);
+            Log.Success(`[${Date.now() - start}ms] ${sender} -> relay ${serializedAddress} -> [REDACTED]`);
             callback();
         } catch (err) {
             Log.Error(`Error parsing or forwarding email: ${err}`);
@@ -86,10 +64,5 @@ const server = new SMTPServer({
     }
 });
 
-server.on('error', (err) => {
-    Log.Error(`SMTP server error: ${err}`);
-});
-
-server.listen(25, () => {
-    Log.Success('SMTP server with STARTTLS listening on port 25');
-});
+server.on('error', err => Log.Error(`SMTP server error: ${err}`));
+server.listen(25, () => Log.Success('SMTP server with STARTTLS listening on port 25'));
