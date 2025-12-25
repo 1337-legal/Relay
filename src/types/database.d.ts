@@ -11,7 +11,7 @@ export interface Alias {
     id: Generated<number>;
     userId: number;
     address: string;
-    status: "active" | "disabled";
+    status: Generated<"active" | "disabled">;
     updatedAt: Generated<Timestamp>;
     createdAt: Generated<Timestamp>;
 }
@@ -21,7 +21,7 @@ export interface User {
     address: string;
     pgpPublicKey: string | null;
     publicKey: string;
-    role: "guest" | "user";
+    role: Generated<"guest" | "user">;
     updatedAt: Generated<Timestamp>;
     createdAt: Generated<Timestamp>;
 }
