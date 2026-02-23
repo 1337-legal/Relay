@@ -113,6 +113,43 @@ class MailingService extends BaseService {
     }
 
     /**
+     * Deserializes an email address that was previously serialized for aliasing.
+     *
+     * @param serialized - The serialized email address to deserialize.
+     * @return A Promise resolving to the original email address string, or null if deserialization fails
+     */
+    async deserializeAddress(serialized: string): Promise<{from: string, alias: string} | null> {
+        const emailRegex = /<([^>]+)>|([^<>\s]+)$/;
+        const match = serialized.trim().match(emailRegex);
+
+        if (!match) return null;
+
+        const emailPart = match[1] || match[2];
+        if (!emailPart) return null;
+
+        const atIndex = emailPart.lastIndexOf('@');
+        if (atIndex === -1) return null;
+
+        const localPart = emailPart.substring(0, atIndex);
+        const domain = emailPart.substring(atIndex + 1);
+
+        const lastUnderscoreIndex = localPart.lastIndexOf('_');
+        if (lastUnderscoreIndex === -1) return null;
+
+        const aliasLocal = localPart.substring(lastUnderscoreIndex + 1);
+        const encodedOriginal = localPart.substring(0, lastUnderscoreIndex);
+
+        const originalFrom = encodedOriginal.replace(/_at_/g, '@');
+
+        const alias = `${aliasLocal}@${domain}`;
+
+        return {
+            from: originalFrom,
+            alias: alias
+        };
+    }
+
+    /**
      * Encrypts the provided email content using the given public key.
      * 
      * @param content - The plain text or HTML content to encrypt.
@@ -145,7 +182,7 @@ class MailingService extends BaseService {
      * @returns A Promise resolving to the result of the email sending operation.
      * @throws If sending fails or required parameters are missing.
      */
-    async sendMail({ from, to, subject, content, publicKey, attachments }: {
+    async sendMail({ from, to, subject, content, publicKey, attachments, replyTo, messageId, inReplyTo, references }: {
         from: string,
         to: string,
         subject: string,
@@ -160,7 +197,11 @@ class MailingService extends BaseService {
             contentDisposition?: string,
             content: Buffer,
             cid?: string
-        }>
+        }>,
+        replyTo?: string,
+        messageId?: string,
+        inReplyTo?: string | string[],
+        references?: string | string[]
     }) {
         const [host, port] = await this.resolveMailExchange(to);
 
@@ -187,6 +228,12 @@ class MailingService extends BaseService {
                 subject
             };
 
+            // Add email threading headers
+            if (replyTo) mailOptions.replyTo = replyTo;
+            if (messageId) mailOptions.messageId = messageId;
+            if (inReplyTo) mailOptions.inReplyTo = inReplyTo;
+            if (references) mailOptions.references = references;
+
             if (publicKey) {
                 const multipartContent = this.createMultipartContent(content, attachments);
                 const encryptedContent = await this.encryptContent(multipartContent, publicKey);
@@ -198,7 +245,11 @@ class MailingService extends BaseService {
                     to,
                     subject,
                     encryptedContent,
-                    boundary: pgpBoundary
+                    boundary: pgpBoundary,
+                    replyTo,
+                    messageId,
+                    inReplyTo,
+                    references
                 });
             } else {
                 if (content.text) {
@@ -241,12 +292,16 @@ class MailingService extends BaseService {
      * @param params.from - The sender's email address.
      * @param params.to - The recipient's email address.
     */
-    private createPGPMimeMessage({ from, to, subject, encryptedContent, boundary }: {
+    private createPGPMimeMessage({ from, to, subject, encryptedContent, boundary, replyTo, messageId, inReplyTo, references }: {
         from: string,
         to: string,
         subject: string,
         encryptedContent: string,
-        boundary: string
+        boundary: string,
+        replyTo?: string,
+        messageId?: string,
+        inReplyTo?: string | string[],
+        references?: string | string[]
     }): string {
         const date = new Date().toUTCString();
 
@@ -254,6 +309,16 @@ class MailingService extends BaseService {
         message += `To: ${to}\r\n`;
         message += `Subject: ${subject}\r\n`;
         message += `Date: ${date}\r\n`;
+        if (replyTo) message += `Reply-To: ${replyTo}\r\n`;
+        if (messageId) message += `Message-ID: ${messageId}\r\n`;
+        if (inReplyTo) {
+            const inReplyToValue = Array.isArray(inReplyTo) ? inReplyTo.join(' ') : inReplyTo;
+            message += `In-Reply-To: ${inReplyToValue}\r\n`;
+        }
+        if (references) {
+            const referencesValue = Array.isArray(references) ? references.join(' ') : references;
+            message += `References: ${referencesValue}\r\n`;
+        }
         message += `MIME-Version: 1.0\r\n`;
         message += `Content-Type: multipart/encrypted; protocol="application/pgp-encrypted"; boundary="${boundary}"\r\n\r\n`;
 
