@@ -5,7 +5,10 @@ import Log from './lib/Logs.ts';
 import AliasRepository from './repositories/AliasRepository.ts';
 import MailingService from './services/MailingService.ts';
 
-const reject = (callback: (err?: Error) => void, message: string) => (Log.Warning(message), callback(new Error(message)));
+const reject = (callback: (err?: Error) => void, message: string) => {
+    Log.Warning(message)
+    callback(new Error(message))
+};
 
 const server = new SMTPServer({
     name: 'mail.1337.legal',
@@ -38,7 +41,9 @@ const server = new SMTPServer({
                 const deserialized = await MailingService.deserializeAddress(recipient);
                 if (!deserialized) return reject(callback, 'Failed to deserialize reply address');
 
-                const { from: originalRecipient, alias: aliasAddress } = deserialized;
+                let { from: originalRecipient, alias: aliasAddress } = deserialized;
+
+                aliasAddress = aliasAddress.toLowerCase();
 
                 console.log(`Reply from ${sender} via ${aliasAddress} to ${originalRecipient}`);
 
