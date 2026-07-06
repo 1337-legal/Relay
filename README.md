@@ -9,7 +9,7 @@
 -   **Anonymous Email Aliases:** Generate unique aliases to shield your real email address.
 -   **End-to-End Encryption:** All forwarded emails are encrypted with your PGP public key before delivery.
 -   **Custom Forwarding:** Choose where your emails are sent—your real inbox stays hidden.
--   **Open Source:** Built with [Bun](https://bun.sh), [Prisma](https://www.prisma.io/), and TypeScript for speed and reliability.
+-   **Blazing Fast:** Built with [Rust](https://www.rust-lang.org/), [samotop](https://docs.rs/samotop), and [Postgres](https://www.postgresql.org/) for speed and safety.
 
 ---
 
@@ -21,3 +21,17 @@
 git clone https://github.com/1337-legal/Relay.git
 cd Relay
 ```
+
+### 2. Configure
+
+Copy `.env.example` to `.env` and fill in `DATABASE_URL`, the `DKIM_*` keys, and (optionally) `RELAY_CERTIFICATES` / `RELAY_PRIVATE_KEY` for STARTTLS.
+
+### 3. Run
+
+```sh
+docker compose up --build      # relay + Postgres
+# or
+cargo run                      # loads .env in dev
+```
+
+The relay listens for SMTP on port `25` (override with `RELAY_BIND`).

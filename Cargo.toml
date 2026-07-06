@@ -1,0 +1,66 @@
+[package]
+name = "RelayRust"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "relay"
+path = "src/lib.rs"
+
+[[bin]]
+name = "relay"
+path = "src/main.rs"
+
+[dependencies]
+# SMTP server framework (+ core, for the `common` future/IO aliases used in the
+# MailGuard/MailDispatch trait signatures).
+samotop = "0.13"
+samotop-core = "0.13"
+
+# Async runtime — samotop is built on async-std.
+async-std = { version = "1", features = ["attributes"] }
+
+# Server-side STARTTLS. async-tls 0.11 pins rustls 0.19, so cert/key loading
+# must use that version's API.
+samotop-with-rustls = "0.13"
+async-tls = "0.11"
+rustls = "0.19"
+
+# Load a .env file in dev (debug) builds.
+dotenvy = "0.15"
+
+# Logging.
+chrono = "0.4"
+colored = "2"
+log = "0.4"
+env_logger = "0.11"
+
+# Address parsing / MIME building.
+regex = "1"
+once_cell = "1"
+base64 = "0.22"
+anyhow = "1"
+
+# Incoming mail parsing.
+mail-parser = "0.9"
+
+# OpenPGP encryption.
+pgp = "0.13"
+rand = "0.8"
+
+# DKIM signing.
+mail-auth = "0.5"
+
+# Outbound SMTP delivery and MX resolution, on the async-std runtime.
+samotop-delivery = "0.13"
+async-std-resolver = "0.24"
+futures = "0.3"
+
+# Postgres access.
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-async-std",
+    "tls-native-tls",
+    "postgres",
+    "chrono",
+    "macros",
+] }

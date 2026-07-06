@@ -1,0 +1,9 @@
+# Build artifacts (rebuilt inside the image).
+target
+
+# VCS, local env, docs.
+.git
+.gitignore
+.env
+*.md
+examples

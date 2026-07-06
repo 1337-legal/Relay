@@ -1,0 +1,40 @@
+# Local stack: the relay plus a Postgres instance.
+#
+# Put DKIM_* (and optionally RELAY_CERTIFICATES / RELAY_PRIVATE_KEY) in a `.env`
+# file next to this one — compose injects them into the relay container.
+#
+# The User/Alias schema is managed elsewhere; point DATABASE_URL at a database
+# that already has those tables before mail can be forwarded.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: relay
+      POSTGRES_DB: relay
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relay"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  relay:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://relay:relay@db:5432/relay
+      RELAY_BIND: 0.0.0.0:25
+      RUST_LOG: info
+    ports:
+      - "25:25"
+
+volumes:
+  pgdata:
