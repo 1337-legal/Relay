@@ -48,8 +48,10 @@ mail-parser = "0.9"
 pgp = "0.13"
 rand = "0.8"
 
-# DKIM signing.
-mail-auth = "0.5"
+# DKIM signing. The pure-Rust `rust-crypto` backend (not `ring`) is required so
+# 1024-bit DKIM keys are accepted; `rsa` normalizes the key to PKCS#1.
+mail-auth = { version = "0.5", default-features = false, features = ["rust-crypto"] }
+rsa = "0.9"
 
 # Outbound SMTP delivery and MX resolution, on the async-std runtime.
 samotop-delivery = "0.13"

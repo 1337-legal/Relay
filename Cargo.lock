@@ -23,6 +23,7 @@ dependencies = [
  "pgp",
  "rand",
  "regex",
+ "rsa",
  "rustls 0.19.1",
  "samotop",
  "samotop-core",
@@ -1707,7 +1708,7 @@ dependencies = [
  "rand",
  "ring 0.17.14",
  "rustls 0.21.12",
- "rustls-pemfile 1.0.4",
+ "rustls-pemfile",
  "thiserror 1.0.69",
  "tinyvec",
  "tokio",
@@ -2251,17 +2252,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "01e36ed6613c4c43f2d3e4ff3af1888b3612c74d56fe0eac2cf25706f6a85a6b"
 dependencies = [
  "ahash",
+ "ed25519-dalek",
  "flate2",
  "hickory-resolver",
  "lru-cache",
  "mail-builder",
  "mail-parser",
  "parking_lot 0.12.5",
- "quick-xml",
- "ring 0.17.14",
- "rustls-pemfile 2.2.0",
+ "rsa",
  "serde",
  "serde_json",
+ "sha1",
+ "sha2",
  "zip",
 ]
 
@@ -2941,15 +2943,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "quick-xml"
-version = "0.37.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "331e97a1af0bf59823e6eadffe373d7b27f485be8748f71471c662c1f269b7fb"
-dependencies = [
- "memchr",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3217,24 +3210,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c74cae0a4cf6ccbbf5f359f08efdf8ee7e1dc532573bf0db71968cb56b1448c"
 dependencies = [
  "base64 0.21.7",
-]
-
-[[package]]
-name = "rustls-pemfile"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dce314e5fee3f39953d46bb63bb8a46d40c2f8fb7cc5a3b6cab2bde9721d6e50"
-dependencies = [
- "rustls-pki-types",
-]
-
-[[package]]
-name = "rustls-pki-types"
-version = "1.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "764899a24af3980067ee14bc143654f297b22eaebfe3c7b6b211920a5a59b046"
-dependencies = [
- "zeroize",
 ]
 
 [[package]]

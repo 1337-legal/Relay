@@ -3,7 +3,6 @@
 //! Column names are camelCase and table names PascalCase, so the `sqlx` field
 //! renames below map the snake_case fields onto the real columns.
 
-use chrono::{DateTime, Utc};
 use sqlx::FromRow;
 
 /// An account that receives forwarded mail.
@@ -19,10 +18,6 @@ pub struct User {
     pub public_key: String,
     /// `"guest"` or `"user"`.
     pub role: String,
-    #[sqlx(rename = "updatedAt")]
-    pub updated_at: DateTime<Utc>,
-    #[sqlx(rename = "createdAt")]
-    pub created_at: DateTime<Utc>,
 }
 
 /// A public relay address bound to a user.
@@ -34,8 +29,4 @@ pub struct Alias {
     pub address: String,
     /// `"active"` or `"disabled"`.
     pub status: String,
-    #[sqlx(rename = "updatedAt")]
-    pub updated_at: DateTime<Utc>,
-    #[sqlx(rename = "createdAt")]
-    pub created_at: DateTime<Utc>,
 }
