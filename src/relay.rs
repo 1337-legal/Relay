@@ -66,10 +66,28 @@ impl Relay {
 
         println!("Reply from {sender} via {alias_address} to {original_recipient}");
 
-        // Ensure the alias exists and is active.
-        alias::get_user_by_alias(&self.pool, &alias_address)
+        // Resolve the alias's owner so we can verify the reply actually came
+        // from them.
+        let user = alias::get_user_by_alias(&self.pool, &alias_address)
             .await?
             .ok_or_else(|| anyhow!("No user found for alias: {alias_address}"))?;
+
+        // Only the alias owner's real (hidden) address may relay a reply
+        // through the alias. Without this check anyone who learns an alias
+        // address — e.g. a past correspondent — could send spoofed,
+        // DKIM-signed mail "from" that alias to an arbitrary destination by
+        // crafting the right RCPT TO, since the SMTP server itself accepts
+        // mail from any unauthenticated sender.
+        let from_address = sender_address(mail)
+            .ok_or_else(|| anyhow!("No sender address found in reply"))?;
+        if !from_address.eq_ignore_ascii_case(&user.address) {
+            logs::warning(format!(
+                "Rejected reply via {alias_address}: sender {from_address} is not the alias owner"
+            ));
+            return Err(anyhow!(
+                "Sender is not authorized to reply via alias: {alias_address}"
+            ));
+        }
 
         let alias_record = alias::get_alias_by_address(&self.pool, &alias_address).await?;
         match alias_record {
@@ -174,6 +192,11 @@ impl Relay {
         }
         Ok(())
     }
+}
+
+/// The bare `From` address, ignoring any display name.
+fn sender_address(mail: &Message<'_>) -> Option<String> {
+    mail.from()?.first()?.address().map(|s| s.to_string())
 }
 
 /// Reconstruct the raw From text (`Name <addr>` or bare `addr`).
