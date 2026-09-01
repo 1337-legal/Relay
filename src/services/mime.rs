@@ -42,6 +42,41 @@ fn chunk_base64(b64: &str) -> String {
     out.trim().to_string()
 }
 
+/// Input bytes per RFC 2047 encoded-word: 75 characters minus the delimiters
+/// leaves 60 base64 characters once rounded to a multiple of 4.
+const MAX_ENCODED_CHUNK: usize = 45;
+
+/// Encode a header value as RFC 2047 encoded-words unless it is already
+/// printable US-ASCII. Keeps 8-bit bytes — and injected line breaks — out of
+/// headers.
+pub fn encode_header_text(value: &str) -> String {
+    if value.chars().all(|c| c.is_ascii() && !c.is_ascii_control()) {
+        return value.to_string();
+    }
+
+    // Chunk on character boundaries so every word decodes to valid UTF-8.
+    let mut words = Vec::new();
+    let mut chunk = String::new();
+    for ch in value.chars() {
+        if chunk.len() + ch.len_utf8() > MAX_ENCODED_CHUNK {
+            words.push(encode_word(&chunk));
+            chunk.clear();
+        }
+        chunk.push(ch);
+    }
+    if !chunk.is_empty() {
+        words.push(encode_word(&chunk));
+    }
+    words.join(" ")
+}
+
+fn encode_word(chunk: &str) -> String {
+    format!(
+        "=?UTF-8?B?{}?=",
+        base64::engine::general_purpose::STANDARD.encode(chunk)
+    )
+}
+
 /// Escape `"` and `\` in a MIME header parameter value.
 fn encode_header_param(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
@@ -163,7 +198,7 @@ pub fn create_pgp_mime_message(
     let mut message = String::new();
     message.push_str(&format!("From: {from}\r\n"));
     message.push_str(&format!("To: {to}\r\n"));
-    message.push_str(&format!("Subject: {subject}\r\n"));
+    message.push_str(&format!("Subject: {}\r\n", encode_header_text(subject)));
     message.push_str(&format!("Date: {date}\r\n"));
     if let Some(reply_to) = &threading.reply_to {
         message.push_str(&format!("Reply-To: {reply_to}\r\n"));
@@ -210,6 +245,48 @@ mod tests {
         for line in chunked.split("\r\n") {
             assert!(line.len() <= 76);
         }
+    }
+
+    #[test]
+    fn ascii_header_text_is_left_alone() {
+        assert_eq!(
+            encode_header_text("Your eBay order #42"),
+            "Your eBay order #42"
+        );
+        assert_eq!(encode_header_text(""), "");
+    }
+
+    #[test]
+    fn non_ascii_header_text_is_encoded() {
+        assert_eq!(encode_header_text("Société"), "=?UTF-8?B?U29jacOpdMOp?=");
+    }
+
+    #[test]
+    fn header_text_cannot_inject_a_header() {
+        let encoded = encode_header_text("Hi\r\nBcc: victim@example.com");
+        assert!(
+            !encoded.contains('\r') && !encoded.contains('\n'),
+            "{encoded}"
+        );
+    }
+
+    #[test]
+    fn long_non_ascii_header_text_splits_into_valid_words() {
+        let encoded = encode_header_text(&"é".repeat(100));
+        let mut decoded = Vec::new();
+        for word in encoded.split(' ') {
+            let payload = word
+                .strip_prefix("=?UTF-8?B?")
+                .and_then(|w| w.strip_suffix("?="))
+                .unwrap_or_else(|| panic!("not an encoded word: {word}"));
+            assert!(word.len() <= 75, "encoded word too long: {word}");
+            decoded.extend(
+                base64::engine::general_purpose::STANDARD
+                    .decode(payload)
+                    .unwrap(),
+            );
+        }
+        assert_eq!(String::from_utf8(decoded).unwrap(), "é".repeat(100));
     }
 
     #[test]

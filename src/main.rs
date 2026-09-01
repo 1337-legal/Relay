@@ -30,7 +30,7 @@ mod tls;
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Domain the relay accepts recipients for.
-const RELAY_DOMAIN: &str = "@1337.legal";
+const RELAY_DOMAIN: &str = "1337.legal";
 
 /// The SMTP server's own name (EHLO greeting).
 const SERVER_NAME: &str = "mail.1337.legal";
@@ -114,15 +114,19 @@ impl MailGuard for RelayGuard {
         's: 'f,
     {
         Box::pin(async move {
+            // Domains are case-insensitive.
             let address = rcpt.address.address();
-            if address.ends_with(RELAY_DOMAIN) {
+            let ours = address.rsplit_once('@').is_some_and(|(local, domain)| {
+                !local.is_empty() && domain.eq_ignore_ascii_case(RELAY_DOMAIN)
+            });
+            if ours {
                 session.transaction.rcpts.push(rcpt);
                 AddRecipientResult::Accepted
             } else {
-                logs::warning("Only @1337.legal addresses are allowed");
+                logs::warning(format!("Only @{RELAY_DOMAIN} addresses are allowed"));
                 AddRecipientResult::Failed(
                     AddRecipientFailure::RejectedPermanently,
-                    "Only @1337.legal addresses are allowed".to_owned(),
+                    format!("Only @{RELAY_DOMAIN} addresses are allowed"),
                 )
             }
         })

@@ -8,6 +8,7 @@
 
 use crate::logs;
 use crate::repositories::alias;
+use crate::services::address;
 use crate::services::mailing::{MailingService, SendMailParams, SendOutcome};
 use crate::services::mime::{Attachment, MailContent};
 use anyhow::{anyhow, Result};
@@ -39,8 +40,7 @@ impl Relay {
 
         let sender = from_text(&mail).ok_or_else(|| anyhow!("No valid sender address found in email"))?;
 
-        let is_reply = recipient.contains("_at_");
-        if is_reply {
+        if address::is_relay_address(recipient) {
             self.handle_reply(&mail, &sender, recipient, start).await
         } else {
             self.handle_inbound(&mail, &sender, recipient, start).await
@@ -138,19 +138,26 @@ impl Relay {
     ) -> Result<()> {
         println!("Incoming email from {sender} to {recipient}");
 
-        let user = alias::get_user_by_alias(&self.pool, recipient)
-            .await?
-            .ok_or_else(|| anyhow!("No user found for recipient alias: {recipient}"))?;
+        // Aliases are stored lower-case; the envelope recipient may not be.
+        let alias_address = recipient.trim().to_lowercase();
 
-        let alias_record = alias::get_alias_by_address(&self.pool, recipient).await?;
+        let user = alias::get_user_by_alias(&self.pool, &alias_address)
+            .await?
+            .ok_or_else(|| anyhow!("No user found for recipient alias: {alias_address}"))?;
+
+        let alias_record = alias::get_alias_by_address(&self.pool, &alias_address).await?;
         match alias_record {
             Some(a) if a.status == "active" => {}
-            _ => return Err(anyhow!("No alias found for recipient address: {recipient}")),
+            _ => {
+                return Err(anyhow!(
+                    "No alias found for recipient address: {alias_address}"
+                ))
+            }
         }
 
         let serialized_address = self
             .mailing
-            .serialize_address(sender, recipient)
+            .serialize_address(sender, &alias_address)
             .ok_or_else(|| anyhow!("Failed to serialize address for forwarding"))?;
 
         // References chain: existing References + this message's Message-ID.
@@ -169,6 +176,9 @@ impl Relay {
                 to: user.address.clone(),
                 subject: subject_or_default(mail),
                 content: content(mail),
+                // Valid return path when the serialized address is too long
+                // for an envelope.
+                envelope_fallback: Some(alias_address.clone()),
                 public_key: user.pgp_public_key.clone(),
                 in_reply_to: mail.message_id().map(|s| s.to_string()),
                 references: join_refs(&references_chain),

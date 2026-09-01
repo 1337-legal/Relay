@@ -35,9 +35,7 @@ colored = "2"
 log = "0.4"
 env_logger = "0.11"
 
-# Address parsing / MIME building.
-regex = "1"
-once_cell = "1"
+# MIME building.
 base64 = "0.22"
 anyhow = "1"
 

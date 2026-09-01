@@ -18,6 +18,8 @@ pub struct SendMailParams {
     pub public_key: Option<String>,
     pub attachments: Vec<Attachment>,
     pub reply_to: Option<String>,
+    /// Envelope sender to fall back to when `from` is unusable as one.
+    pub envelope_fallback: Option<String>,
     pub message_id: Option<String>,
     pub in_reply_to: Option<String>,
     pub references: Option<String>,
@@ -79,6 +81,10 @@ impl MailingService {
 
     /// Send mail, PGP-encrypting the body when a `public_key` is supplied.
     pub async fn send_mail(&self, params: SendMailParams) -> Result<SendOutcome> {
+        // Resolved first so a bad address fails before the DNS round trip.
+        let envelope_from =
+            transport::envelope_sender(&params.from, params.envelope_fallback.as_deref())?;
+
         let (host, port) = self.resolve_mail_exchange(&params.to).await?;
 
         let threading = Threading {
@@ -108,7 +114,7 @@ impl MailingService {
         transport::deliver(
             &host,
             port,
-            &params.from,
+            envelope_from,
             &params.to,
             raw_message.as_bytes(),
             &self.domain,
@@ -122,6 +128,7 @@ impl MailingService {
 // MX resolution + DKIM-signed SMTP delivery.
 mod transport {
     use super::{SendMailParams, SendOutcome};
+    use crate::services::address;
     use crate::services::dkim;
     use crate::services::mime::{self, Threading};
     use anyhow::{anyhow, Context, Result};
@@ -141,7 +148,10 @@ mod transport {
         let mut msg = String::new();
         msg.push_str(&format!("From: {}\r\n", params.from));
         msg.push_str(&format!("To: {}\r\n", params.to));
-        msg.push_str(&format!("Subject: {}\r\n", params.subject));
+        msg.push_str(&format!(
+            "Subject: {}\r\n",
+            mime::encode_header_text(&params.subject)
+        ));
         msg.push_str(&format!("Date: {date}\r\n"));
         if let Some(v) = &threading.reply_to {
             msg.push_str(&format!("Reply-To: {v}\r\n"));
@@ -163,12 +173,32 @@ mod transport {
     /// Extract the bare `addr` from a possibly display-name-wrapped address
     /// (`Name <addr>` → `addr`).
     fn extract_email(addr: &str) -> String {
-        if let (Some(start), Some(end)) = (addr.find('<'), addr.find('>')) {
-            if start < end {
-                return addr[start + 1..end].to_string();
-            }
-        }
-        addr.trim().to_string()
+        address::parse_mailbox(addr)
+            .map(|mailbox| mailbox.address)
+            .unwrap_or_else(|| addr.trim().to_string())
+    }
+
+    /// The envelope sender (SMTP `MAIL FROM`), normally the `From` address.
+    ///
+    /// RFC 5321 caps an envelope local part at 64 octets, which a serialized
+    /// reverse alias exceeds when the original sender's address is long. Header
+    /// addresses have no such limit, so the long reply-able `From` is kept and
+    /// `fallback` becomes the return path.
+    pub fn envelope_sender(from: &str, fallback: Option<&str>) -> Result<EmailAddress> {
+        let address = extract_email(from);
+        let err = match EmailAddress::new(address.clone()) {
+            Ok(sender) => return Ok(sender),
+            Err(err) => err,
+        };
+
+        let fallback = fallback
+            .map(extract_email)
+            .ok_or_else(|| anyhow!("bad from {address}: {err}"))?;
+        crate::logs::warning(format!(
+            "{address} is not a valid envelope sender ({err}); \
+             using {fallback} as the return path"
+        ));
+        EmailAddress::new(fallback).map_err(|e| anyhow!("bad from: {e}"))
     }
 
     /// Resolve the highest-priority MX host for the recipient's domain,
@@ -211,7 +241,7 @@ mod transport {
     pub async fn deliver(
         host: &str,
         port: u16,
-        from: &str,
+        from: EmailAddress,
         to: &str,
         raw_message: &[u8],
         dkim_domain: &str,
@@ -225,7 +255,7 @@ mod transport {
         signed.extend_from_slice(raw_message);
 
         let envelope = Envelope::new(
-            Some(EmailAddress::new(extract_email(from)).map_err(|e| anyhow!("bad from: {e}"))?),
+            Some(from),
             vec![EmailAddress::new(extract_email(to)).map_err(|e| anyhow!("bad to: {e}"))?],
             envelope_id(dkim_domain),
         )
@@ -257,5 +287,48 @@ mod transport {
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let seq = SEQ.fetch_add(1, Ordering::Relaxed);
         format!("{}.{seq}@{domain}", chrono::Utc::now().timestamp_millis())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::services::address::serialize_address;
+
+        /// A sender long enough to overrun the envelope local-part limit.
+        const APPLE_RELAY: &str =
+            "eBay <ebay_at_information_ebay_fr_vgzn7n2xx8_536b29e7@privaterelay.appleid.com>";
+        const ALIAS: &str = "describe-above-crunch@1337.legal";
+
+        #[test]
+        fn extracts_the_bare_address() {
+            assert_eq!(extract_email("Bob <bob@example.com>"), "bob@example.com");
+            assert_eq!(extract_email(" bob@example.com "), "bob@example.com");
+            assert_eq!(
+                extract_email("dev <ops <bob@example.com>"),
+                "bob@example.com"
+            );
+        }
+
+        #[test]
+        fn envelope_sender_uses_the_from_address() {
+            let sender = envelope_sender("Bob <bob@example.com>", Some(ALIAS)).unwrap();
+            assert_eq!(sender.to_string(), "bob@example.com");
+        }
+
+        #[test]
+        fn envelope_sender_falls_back_when_the_from_address_is_too_long() {
+            let from = serialize_address(APPLE_RELAY, ALIAS).unwrap();
+            // 97 octets: legal in a `From` header, not on the wire.
+            assert!(extract_email(&from).split('@').next().unwrap().len() > 64);
+
+            let sender = envelope_sender(&from, Some(ALIAS)).unwrap();
+            assert_eq!(sender.to_string(), ALIAS);
+        }
+
+        #[test]
+        fn envelope_sender_without_a_fallback_still_errors() {
+            let from = serialize_address(APPLE_RELAY, ALIAS).unwrap();
+            assert!(envelope_sender(&from, None).is_err());
+        }
     }
 }
