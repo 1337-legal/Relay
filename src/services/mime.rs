@@ -82,6 +82,25 @@ fn encode_header_param(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// `key="value"`, or the RFC 2231 `key*=UTF-8''...` form when the value is not
+/// plain ASCII. Control characters are dropped either way.
+fn header_param(key: &str, value: &str) -> String {
+    let value: String = value.chars().filter(|c| !c.is_control()).collect();
+    if value.is_ascii() {
+        return format!("{key}=\"{}\"", encode_header_param(&value));
+    }
+
+    let mut encoded = String::with_capacity(value.len() * 3);
+    for b in value.bytes() {
+        if b.is_ascii_alphanumeric() || b"!#$&+-.^_`|~".contains(&b) {
+            encoded.push(b as char);
+        } else {
+            encoded.push_str(&format!("%{b:02X}"));
+        }
+    }
+    format!("{key}*=UTF-8''{encoded}")
+}
+
 /// Build the inner MIME body that is encrypted for PGP/MIME delivery.
 ///
 /// Produces `multipart/alternative` (text + html) when there are no
@@ -156,13 +175,13 @@ pub fn create_multipart_content(content: &MailContent, attachments: &[Attachment
 
         mime.push_str(&format!("--{mixed}\r\n"));
         mime.push_str(&format!(
-            "Content-Type: {content_type}; name=\"{}\"\r\n",
-            encode_header_param(filename)
+            "Content-Type: {content_type}; {}\r\n",
+            header_param("name", filename)
         ));
         mime.push_str("Content-Transfer-Encoding: base64\r\n");
         mime.push_str(&format!(
-            "Content-Disposition: {disposition}; filename=\"{}\"\r\n",
-            encode_header_param(filename)
+            "Content-Disposition: {disposition}; {}\r\n",
+            header_param("filename", filename)
         ));
         if let Some(cid) = &att.cid {
             mime.push_str(&format!("Content-ID: <{cid}>\r\n"));
@@ -292,6 +311,20 @@ mod tests {
     #[test]
     fn header_param_escaping() {
         assert_eq!(encode_header_param(r#"a"b\c"#), r#"a\"b\\c"#);
+    }
+
+    #[test]
+    fn filename_param_drops_line_breaks() {
+        let param = header_param("filename", "x\r\nContent-Type: text/html");
+        assert_eq!(param, r#"filename="xContent-Type: text/html""#);
+    }
+
+    #[test]
+    fn non_ascii_filename_uses_rfc2231() {
+        assert_eq!(
+            header_param("filename", "résumé 2.pdf"),
+            "filename*=UTF-8''r%C3%A9sum%C3%A9%202.pdf"
+        );
     }
 
     #[test]
