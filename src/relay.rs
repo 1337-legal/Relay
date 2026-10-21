@@ -155,6 +155,15 @@ impl Relay {
             }
         }
 
+        // Forwards can use the alias as their return path, so the owner's own
+        // bounces land here. Sending them back would just bounce again.
+        if is_bounce_for(mail, &user.address) {
+            logs::warning(format!(
+                "Dropped a bounce to {alias_address}: the owner's mailbox rejected a forward"
+            ));
+            return Ok(());
+        }
+
         let serialized_address = self
             .mailing
             .serialize_address(sender, &alias_address)
@@ -223,6 +232,31 @@ fn subject_or_default(mail: &Message<'_>) -> String {
     mail.subject().unwrap_or("No Subject").to_string()
 }
 
+/// Whether `mail` is a delivery status report for a message sent to `owner`.
+fn is_bounce_for(mail: &Message<'_>, owner: &str) -> bool {
+    if !mail.is_content_type("multipart", "report") {
+        return false;
+    }
+
+    mail.parts
+        .iter()
+        .filter(|part| {
+            part.is_content_type("message", "delivery-status")
+                || part.is_content_type("message", "global-delivery-status")
+        })
+        .any(|part| {
+            String::from_utf8_lossy(part.contents()).lines().any(|line| {
+                let Some((field, value)) = line.split_once(':') else {
+                    return false;
+                };
+                let recipient = value.rsplit(';').next().unwrap_or_default();
+                (field.eq_ignore_ascii_case("final-recipient")
+                    || field.eq_ignore_ascii_case("original-recipient"))
+                    && recipient.trim().trim_matches(['<', '>']).eq_ignore_ascii_case(owner)
+            })
+        })
+}
+
 /// Extract text + html bodies.
 fn content(mail: &Message<'_>) -> MailContent {
     MailContent {
@@ -270,4 +304,54 @@ fn attachments(mail: &Message<'_>) -> Vec<Attachment> {
             cid: part.content_id().map(|s| s.to_string()),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dsn(final_recipient: &str) -> String {
+        format!(
+            "From: MAILER-DAEMON@mx.example.com\r\n\
+             To: alice@1337.legal\r\n\
+             Subject: Undelivered Mail Returned to Sender\r\n\
+             Content-Type: multipart/report; report-type=delivery-status; boundary=\"b\"\r\n\
+             \r\n\
+             --b\r\n\
+             Content-Type: text/plain\r\n\
+             \r\n\
+             Mailbox full.\r\n\
+             --b\r\n\
+             Content-Type: message/delivery-status\r\n\
+             \r\n\
+             Reporting-MTA: dns; mx.example.com\r\n\
+             \r\n\
+             Final-Recipient: rfc822; {final_recipient}\r\n\
+             Action: failed\r\n\
+             Status: 5.2.2\r\n\
+             --b--\r\n"
+        )
+    }
+
+    #[test]
+    fn detects_a_bounce_from_the_owner_mailbox() {
+        let raw = dsn("Owner@Example.com");
+        let mail = MessageParser::default().parse(raw.as_bytes()).unwrap();
+        assert!(is_bounce_for(&mail, "owner@example.com"));
+    }
+
+    #[test]
+    fn keeps_bounces_for_other_recipients() {
+        // e.g. a reply the owner sent through the alias that didn't get through
+        let raw = dsn("bob@elsewhere.com");
+        let mail = MessageParser::default().parse(raw.as_bytes()).unwrap();
+        assert!(!is_bounce_for(&mail, "owner@example.com"));
+    }
+
+    #[test]
+    fn plain_mail_is_not_a_bounce() {
+        let raw = "From: bob@example.com\r\nTo: alice@1337.legal\r\n\r\nFinal-Recipient: rfc822; owner@example.com\r\n";
+        let mail = MessageParser::default().parse(raw.as_bytes()).unwrap();
+        assert!(!is_bounce_for(&mail, "owner@example.com"));
+    }
 }
