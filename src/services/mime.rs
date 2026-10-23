@@ -48,7 +48,7 @@ const MAX_ENCODED_CHUNK: usize = 45;
 
 /// Encode a header value as RFC 2047 encoded-words unless it is already
 /// printable US-ASCII. Keeps 8-bit bytes — and injected line breaks — out of
-/// headers.
+/// headers. Each word after the first goes on its own folded line.
 pub fn encode_header_text(value: &str) -> String {
     if value.chars().all(|c| c.is_ascii() && !c.is_ascii_control()) {
         return value.to_string();
@@ -67,7 +67,7 @@ pub fn encode_header_text(value: &str) -> String {
     if !chunk.is_empty() {
         words.push(encode_word(&chunk));
     }
-    words.join(" ")
+    words.join("\r\n ")
 }
 
 fn encode_word(chunk: &str) -> String {
@@ -293,7 +293,7 @@ mod tests {
     fn long_non_ascii_header_text_splits_into_valid_words() {
         let encoded = encode_header_text(&"é".repeat(100));
         let mut decoded = Vec::new();
-        for word in encoded.split(' ') {
+        for word in encoded.split("\r\n ") {
             let payload = word
                 .strip_prefix("=?UTF-8?B?")
                 .and_then(|w| w.strip_suffix("?="))
@@ -306,6 +306,15 @@ mod tests {
             );
         }
         assert_eq!(String::from_utf8(decoded).unwrap(), "é".repeat(100));
+    }
+
+    #[test]
+    fn long_header_text_is_folded() {
+        let encoded = encode_header_text(&"日本語".repeat(70));
+        let lines: Vec<_> = encoded.split("\r\n").collect();
+        assert!(lines.len() > 1);
+        assert!(lines.iter().all(|line| line.len() <= 76), "{encoded}");
+        assert!(lines[1..].iter().all(|line| line.starts_with(' ')));
     }
 
     #[test]
