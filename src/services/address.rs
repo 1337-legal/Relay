@@ -33,7 +33,7 @@ pub fn get_domain_from_email(email: &str) -> Option<String> {
 /// Whether an address is a serialized relay-back address rather than a plain
 /// alias, i.e. whether mail sent to it is a reply to forward onwards.
 pub fn is_relay_address(address: &str) -> bool {
-    address.contains(AT_MARKER)
+    address.to_ascii_lowercase().contains(AT_MARKER)
 }
 
 /// Parse `Display <addr>`, `<addr>` or a bare `addr`, taking the address from
@@ -108,8 +108,10 @@ pub fn deserialize_address(serialized: &str) -> Option<Deserialized> {
     let (local, domain) = relay.rsplit_once('@')?;
 
     // Split on the *last* marker: the original local part may contain `_at_`
-    // of its own, as provider relay addresses do.
-    let (original_local, tail) = local.rsplit_once(AT_MARKER)?;
+    // of its own, as provider relay addresses do. Mail systems sometimes
+    // upper-case addresses, so match it in any case.
+    let marker = local.to_ascii_lowercase().rfind(AT_MARKER)?;
+    let (original_local, tail) = (&local[..marker], &local[marker + AT_MARKER.len()..]);
     // Domains cannot contain `_`, so the tail's first underscore ends the
     // original domain; the alias local part after it may contain more.
     let (original_domain, alias_local) = tail.split_once('_')?;
@@ -250,6 +252,19 @@ mod tests {
     fn relay_address_detection() {
         assert!(is_relay_address("bob_at_example.com_alice@1337.legal"));
         assert!(!is_relay_address("describe-above-crunch@1337.legal"));
+    }
+
+    #[test]
+    fn upper_cased_relay_address() {
+        let address = "BOB_AT_EXAMPLE.COM_ALICE@1337.LEGAL";
+        assert!(is_relay_address(address));
+        assert_eq!(
+            deserialize_address(address),
+            Some(Deserialized {
+                from: "BOB@EXAMPLE.COM".into(),
+                alias: "ALICE@1337.LEGAL".into(),
+            })
+        );
     }
 
     #[test]
