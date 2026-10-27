@@ -33,7 +33,7 @@ pub fn get_domain_from_email(email: &str) -> Option<String> {
 /// Whether an address is a serialized relay-back address rather than a plain
 /// alias, i.e. whether mail sent to it is a reply to forward onwards.
 pub fn is_relay_address(address: &str) -> bool {
-    address.to_ascii_lowercase().contains(AT_MARKER)
+    deserialize_address(address).is_some()
 }
 
 /// Parse `Display <addr>`, `<addr>` or a bare `addr`, taking the address from
@@ -107,22 +107,24 @@ pub fn deserialize_address(serialized: &str) -> Option<Deserialized> {
     let relay = parse_mailbox(serialized)?.address;
     let (local, domain) = relay.rsplit_once('@')?;
 
-    // Split on the *last* marker: the original local part may contain `_at_`
-    // of its own, as provider relay addresses do. Mail systems sometimes
-    // upper-case addresses, so match it in any case.
-    let marker = local.to_ascii_lowercase().rfind(AT_MARKER)?;
-    let (original_local, tail) = (&local[..marker], &local[marker + AT_MARKER.len()..]);
-    // Domains cannot contain `_`, so the tail's first underscore ends the
-    // original domain; the alias local part after it may contain more.
-    let (original_domain, alias_local) = tail.split_once('_')?;
+    // Both the original local part (provider relay addresses) and the alias
+    // may contain `_at_`, so take the last marker that leaves a valid tail.
+    // Mail systems sometimes upper-case addresses, so match it in any case.
+    let lower = local.to_ascii_lowercase();
+    lower.rmatch_indices(AT_MARKER).find_map(|(marker, _)| {
+        let (original_local, tail) = (&local[..marker], &local[marker + AT_MARKER.len()..]);
+        // Domains cannot contain `_`, so the tail's first underscore ends the
+        // original domain; the alias local part after it may contain more.
+        let (original_domain, alias_local) = tail.split_once('_')?;
 
-    if original_local.is_empty() || alias_local.is_empty() || !original_domain.contains('.') {
-        return None;
-    }
+        if original_local.is_empty() || alias_local.is_empty() || !original_domain.contains('.') {
+            return None;
+        }
 
-    Some(Deserialized {
-        from: format!("{original_local}@{original_domain}"),
-        alias: format!("{alias_local}@{domain}"),
+        Some(Deserialized {
+            from: format!("{original_local}@{original_domain}"),
+            alias: format!("{alias_local}@{domain}"),
+        })
     })
 }
 
@@ -252,6 +254,24 @@ mod tests {
     fn relay_address_detection() {
         assert!(is_relay_address("bob_at_example.com_alice@1337.legal"));
         assert!(!is_relay_address("describe-above-crunch@1337.legal"));
+    }
+
+    #[test]
+    fn round_trip_alias_local_part_containing_the_marker() {
+        let serialized = serialize_bare("bob@example.com", "cat_at_home@1337.legal").unwrap();
+        let back = deserialize_address(&serialized).unwrap();
+        assert_eq!(back.from, "bob@example.com");
+        assert_eq!(back.alias, "cat_at_home@1337.legal");
+
+        let serialized = serialize_bare(APPLE_RELAY, "cat_at_home_2@1337.legal").unwrap();
+        let back = deserialize_address(&serialized).unwrap();
+        assert_eq!(back.from, APPLE_RELAY);
+        assert_eq!(back.alias, "cat_at_home_2@1337.legal");
+    }
+
+    #[test]
+    fn plain_alias_containing_the_marker_is_not_a_relay_address() {
+        assert!(!is_relay_address("cat_at_home@1337.legal"));
     }
 
     #[test]
